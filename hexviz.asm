@@ -152,10 +152,10 @@ hexout:
     rts                         // -> output
 
 hex_digits:
-   // codes for 0 to 9
-   .byte $30, $31, $32, $33, $34, $35, $36, $37, $38, $39
-   // codes for A to F
-   .byte $01, $02, $03, $04, $05, $06
+    // codes for 0 to 9
+    .byte $30, $31, $32, $33, $34, $35, $36, $37, $38, $39
+    // codes for A to F
+    .byte $01, $02, $03, $04, $05, $06
 
 // binout 
 // display binary 0 and 1 chars
