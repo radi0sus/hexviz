@@ -133,23 +133,23 @@ output:
 // display HEX chars
 // adapted from https://www.c64-wiki.de/wiki/bildschirmausgabe.asm
 hexout:
-   pha                          // push acc to stack
-   lsr                          // shift one bit right
-   lsr                          // 4 times
-   lsr
-   lsr
-   tax                          // transfer to x, index for upper 4 bits
-   lda hex_digits,x             // load char for upper 4 bits from hex_digits
-   sta SCREEN+139               // display char at center
-   sta SCREEN+129               // display char at left pos
+    pha                         // push acc to stack
+    lsr                         // shift one bit right
+    lsr                         // 4 times
+    lsr
+    lsr
+    tax                         // transfer to x, index for upper 4 bits
+    lda hex_digits,x            // load char for upper 4 bits from hex_digits
+    sta SCREEN+139              // display char at center
+    sta SCREEN+129              // display char at left pos
 
-   pla                          // get acc from stack
-   and #$0f                     // mask lower 4 bits
-   tax                          // transfer to x, index for lower 4 bits
-   lda hex_digits,x             // load char for lower 4 bits from hex_digits
-   sta SCREEN+140               // display char at center
-   sta SCREEN+150               // display char at right pos
-   rts                          // -> output
+    pla                         // get acc from stack
+    and #$0f                    // mask lower 4 bits
+    tax                         // transfer to x, index for lower 4 bits
+    lda hex_digits,x            // load char for lower 4 bits from hex_digits
+    sta SCREEN+140              // display char at center
+    sta SCREEN+150              // display char at right pos
+    rts                         // -> output
 
 hex_digits:
    // codes for 0 to 9
@@ -379,7 +379,7 @@ decout_tens_done:
     rts                         // return
 
 // screen character data
-// https://www.c64-wiki.de/wiki/bildschirmausgabe.asm
+// https://petscii.krissz.hu
 *=$2800 "Screen character data"
     .byte    $20, $08, $05, $18, $20, $02, $09, $0E, $20, $04, $05, $03, $20, $16, $09, $13, $15, $01, $0C, $09, $1A, $05, $12, $20, $20, $03, $36, $34, $20, $16, $05, $12, $13, $09, $0F, $0E, $20, $32, $35, $20 // HEX BIN  0
     .byte    $20, $20, $20, $20, $20, $20, $20, $20, $20, $20, $20, $20, $20, $20, $20, $20, $20, $20, $20, $20, $20, $20, $20, $20, $20, $20, $20, $20, $20, $20, $20, $20, $20, $20, $20, $20, $20, $20, $20, $20 // empty    1
@@ -408,7 +408,7 @@ decout_tens_done:
     .byte    $20, $20, $20, $20, $20, $20, $11, $15, $09, $14, $20, $20, $11, $20, $20, $20, $20, $20, $4C, $6F, $6F, $6F, $7A, $20, $20, $20, $20, $20, $20, $20, $20, $20, $20, $20, $20, $20, $20, $20, $20, $20 // QUIT     8 24
 
 // screen color data
-// https://www.c64-wiki.de/wiki/bildschirmausgabe.asm
+// https://petscii.krissz.hu
 *=$2be8 "Screen color data"
     .byte    $01, $05, $05, $05, $01, $07, $07, $07, $01, $03, $03, $03, $01, $01, $01, $01, $01, $01, $01, $01, $01, $01, $01, $01, $01, $01, $01, $01, $01, $01, $01, $01, $01, $01, $01, $01, $01, $01, $01, $01
     .byte    $01, $01, $01, $01, $01, $01, $01, $01, $01, $01, $01, $01, $01, $01, $01, $01, $01, $01, $01, $01, $01, $01, $01, $01, $01, $01, $01, $01, $01, $01, $01, $01, $01, $01, $01, $01, $01, $01, $01, $01
