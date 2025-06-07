@@ -250,7 +250,7 @@ bit_mul1:
     cmp #$30                    // is char '0' ?
     beq bit_mul10               // branch to -> bit_mul10 (display '0' at bit 1 mul pos)
     lda #$32                    // else load char '2'
-    sta SCREEN+752              // display '1' at bit 1 mul pos
+    sta SCREEN+752              // display '2' at bit 1 mul pos
     rts                         // return
 bit_mul10:                      
     sta SCREEN+752              // display '0' at bit 0 mul pos
