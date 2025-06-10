@@ -1,3 +1,9 @@
+// 8 Bit HEX BIN DEC Visualizer for Commodore C128 80 col VDC
+// use CRSR UP and CRSR DOWN to change values (+1 / -1)
+// Q to quit
+// compiles with Kick Assembler (cross assembler)
+// https://theweb.dk/KickAssembler/Main.html#frontpage
+
 /* constants & zero page=============================================================== */
 
 // https://github.com/franckverrot/EmulationResources/blob/master/consoles/commodore/C128%20RAM%20Map.txt
