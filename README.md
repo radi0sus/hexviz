@@ -5,4 +5,7 @@ HEX BIN DEC visualizer for C64
 
 and C128 (80 col / VDC)
 
-<img src='screenshot128.png' alt='screenshot C128' width=500 align='center'>  
+<img src='screenshot1281.png' alt='screenshot C128 1' width=500 align='center'>  
+
+    
+<img src='screenshot1282.png' alt='screenshot C128 2' width=500 align='center'>  
