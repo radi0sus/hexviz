@@ -90,15 +90,15 @@ start:
 // loop to load all chars
 loop_ch:
     ldx #31                     // data register of VDC
-    ldy temp1                   // low byte VDC is also counter for screen char data
-    lda (temp3),y               // load char to data register from src 1
+    ldy temp1                   // inner counter for screen char data
+    lda (temp3),y               // load char to VDC data register from src 1
     jsr VDCWRITE                // kernal to write to VDC
     inc temp1                   // increment temp1
     bne loop_ch                 // -> 255 exit inner loop
         
-    inc temp4                   // increment high byte src1
-    inc temp2                   // increment high byte VDC update
-    lda temp2                   // load high byte VDC update
+    inc temp4                   // increment high byte src 1
+    inc temp2                   // counter outer loop
+    lda temp2                   // load counter outer loop
     cmp #8                      // is it 8 (x 256) ?
     bne loop_ch                 // = 8 ? exit loop, all chars on screen
 
@@ -123,16 +123,15 @@ loop_ch:
 // loop to load all colors
 loop_col:
     ldx #31                     // data register of VDC
-    ldy temp1                   // low byte VDC is also counter for color data
-    lda (temp3),y 
+    ldy temp1                   // inner counter for screen color data
+    lda (temp3),y               // load attributes to VDC attribute ram from src 2
     jsr VDCWRITE                // kernal to write to VDC
-   
     inc temp1                   // increment temp1
     bne loop_col                // > 255 exit inner loop
         
-    inc temp4                   // increment high byte src1
-    inc temp2                   // increment high byte VDC update
-    lda temp2                   // load high byte VDC update
+    inc temp4                   // increment high byte src 2
+    inc temp2                   // counter outer loop
+    lda temp2                   // load counter outer loop
     cmp #8                      // is it 8 (x 256) ?
     bne loop_col                // = 8 ? exit loop, all chars on screen
 
@@ -164,15 +163,15 @@ loop_col:
 // loop to load all chars
 loop_ch2:
     ldx #31                     // data register of VDC
-    ldy temp1                   // low byte VDC is also counter for screen char data
-    lda (temp3),y               // load char to data register from src 1
+    ldy temp1                   // inner counter for screen char data
+    lda (temp3),y               // load char to VDC data register from src 3
     jsr VDCWRITE                // kernal to write to VDC
     inc temp1                   // increment temp1
     bne loop_ch2                // -> 255 exit inner loop
         
-    inc temp4                   // increment high byte src1
-    inc temp2                   // increment high byte VDC update
-    lda temp2                   // load high byte VDC update
+    inc temp4                   // increment high byte src 3
+    inc temp2                   // counter outer loop
+    lda temp2                   // load counter outer loop
     cmp #8                      // is it 8 (x 256) ?
     bne loop_ch2                // = 8 ? exit loop, all chars on screen
         
@@ -198,18 +197,17 @@ loop_ch2:
 // loop to load all colors
 loop_col2:
     ldx #31                     // data register of VDC
-    ldy temp1                   // low byte VDC is also counter for color data
-    lda (temp3),y 
+    ldy temp1                   // inner counter for screen color data
+    lda (temp3),y               // load attributes to VDC attribute ram from src 4
     jsr VDCWRITE                // kernal to write to VDC
-   
     inc temp1                   // increment temp1
     bne loop_col2               // > 255 exit inner loop
         
-    inc temp4                   // increment high byte src1
-    inc temp2                   // increment high byte VDC update
-    lda temp2                   // load high byte VDC update
+    inc temp4                   // increment high byte src 4
+    inc temp2                   // counter outer loop
+    lda temp2                   // load counter outer loop
     cmp #8                      // is it 8 (x 256) ?
-    bne loop_col2                // = 8 ? exit loop, all chars on screen
+    bne loop_col2               // = 8 ? exit loop, all chars on screen
 /* ==================================================================================== */
 
 // main prg loop
