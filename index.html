@@ -49,6 +49,10 @@
     white-space:pre;
   }
 
+  .cell.clickable{
+    cursor:pointer;
+  }
+
   .w{color:#e8e8e8}
   .g{color:#42ff55}
   .y{color:#ffff36}
@@ -131,6 +135,7 @@
         const el = cells[y][x];
         el.textContent = " ";
         el.className = "cell w";
+        delete el.dataset.action;
       }
     }
   }
@@ -140,6 +145,7 @@
     const el = cells[y][x];
     el.textContent = ch[0] ?? " ";
     el.className = "cell " + col + (rev ? " rev" : "");
+    delete el.dataset.action;
   }
 
   function write(x,y,text,col="w"){
@@ -189,6 +195,67 @@
     flags.n = (result & 0x80) ? 1 : 0;
     flags.z = result === 0 ? 1 : 0;
     flags.c = carry ? 1 : 0;
+  }
+
+  // ─── Touch-/Maus-Hilfen ───────────────────────────────────────────
+
+  function markRange(x1,x2,y,action){
+    for(let x=x1; x<=x2; x++){
+      if(x < 0 || x >= COLS || y < 0 || y >= ROWS) continue;
+      const el = cells[y][x];
+      el.classList.add("clickable");
+      el.dataset.action = action;
+    }
+  }
+
+  function markBox(x,y,w,h,action){
+    for(let yy=y; yy<y+h; yy++){
+      for(let xx=x; xx<x+w; xx++){
+        if(xx < 0 || xx >= COLS || yy < 0 || yy >= ROWS) continue;
+        const el = cells[yy][xx];
+        el.classList.add("clickable");
+        el.dataset.action = action;
+      }
+    }
+  }
+
+  function markMainControls(){
+    /*
+      Bedienzeile 23:
+      [CR UP]   +1  [<] ASL  ROL [N] C0 [V] C1  [Q] QUIT
+
+      Bedienzeile 24:
+      [CR DOWN] -1  [>] LSR  ROR [M] C0 [B] C1  [H] HELP
+    */
+
+    // Exakte Textzonen oben
+    markRange(0,12,23,"inc");
+    markRange(14,20,23,"asl");
+    markRange(23,32,23,"rol0");
+    markRange(34,39,23,"rol1");
+    markRange(42,49,23,"quit");
+
+    // Exakte Textzonen unten
+    markRange(0,12,24,"dec");
+    markRange(14,20,24,"lsr");
+    markRange(23,32,24,"ror0");
+    markRange(34,39,24,"ror1");
+    markRange(42,49,24,"help");
+
+    // Größere Touch-Flächen für Fingerbedienung.
+    // Reihe 22 ist unsichtbare Zusatzfläche über den oberen Controls.
+    markBox(0,22,13,2,"inc");
+    markBox(14,22,7,2,"asl");
+    markBox(23,22,10,2,"rol0");
+    markBox(34,22,6,2,"rol1");
+    markBox(42,22,8,2,"quit");
+
+    // Untere Controls separat markieren.
+    markBox(0,24,13,1,"dec");
+    markBox(14,24,7,1,"lsr");
+    markBox(23,24,10,1,"ror0");
+    markBox(34,24,6,1,"ror1");
+    markBox(42,24,8,1,"help");
   }
 
   function drawMainStatic(){
@@ -304,6 +371,7 @@
     mode = "main";
     drawMainStatic();
     drawDynamic();
+    markMainControls();
   }
 
   function drawHelp(){
@@ -338,6 +406,14 @@
 
     write(55,12,"C","o");
     write(58,12,"CARRY FLAG","w");
+
+    // Im Help-Screen reicht Klick/Tap irgendwo zum Zurückgehen
+    for(let y=0; y<ROWS; y++){
+      for(let x=0; x<COLS; x++){
+        cells[y][x].classList.add("clickable");
+        cells[y][x].dataset.action = "helpBack";
+      }
+    }
   }
 
   function drawExit(){
@@ -387,6 +463,61 @@
     value &= 255;
     setNZC(value,carry);
     drawMain();
+  }
+
+  function runAction(action){
+    if(stopped) return;
+
+    if(mode === "help"){
+      drawMain();
+      return;
+    }
+
+    switch(action){
+      case "inc":
+        incValue();
+        break;
+
+      case "dec":
+        decValue();
+        break;
+
+      case "asl":
+        asl();
+        break;
+
+      case "lsr":
+        lsr();
+        break;
+
+      case "rol0":
+        rol(0);
+        break;
+
+      case "ror0":
+        ror(0);
+        break;
+
+      case "rol1":
+        rol(1);
+        break;
+
+      case "ror1":
+        ror(1);
+        break;
+
+      case "help":
+        drawHelp();
+        break;
+
+      case "quit":
+        drawExit();
+        break;
+
+      case "helpBack":
+        drawMain();
+        break;
+    }
   }
 
   window.addEventListener("keydown", e => {
@@ -442,6 +573,39 @@
       drawExit();
     }
   });
+
+  // ─── Maus & Touch ─────────────────────────────────────────────────
+
+  function handlePointer(e){
+    if(stopped) return;
+
+    let target;
+
+    if(e.type === "touchend"){
+      const touch = e.changedTouches[0];
+      target = document.elementFromPoint(touch.clientX, touch.clientY);
+    } else {
+      target = e.target;
+    }
+
+    if(!target) return;
+
+    let el = target;
+
+    while(el && el !== screen){
+      if(el.dataset && el.dataset.action){
+        e.preventDefault();
+        runAction(el.dataset.action);
+        screen.focus();
+        return;
+      }
+
+      el = el.parentElement;
+    }
+  }
+
+  screen.addEventListener("click", handlePointer);
+  screen.addEventListener("touchend", handlePointer, { passive:false });
 
   makeCells();
   fit();
