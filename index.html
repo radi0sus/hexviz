@@ -1,0 +1,453 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>C128 VDC HEX BIN DEC Visualizer</title>
+<style>
+  :root{
+    --cw:12px;
+    --ch:20px;
+    --fs:18px;
+  }
+
+  html,body{
+    margin:0;
+    width:100%;
+    height:100%;
+    background:#000;
+    overflow:hidden;
+    display:grid;
+    place-items:center;
+  }
+
+  #wrap{
+    transform-origin:center center;
+  }
+
+  #screen{
+    width:calc(80 * var(--cw));
+    height:calc(25 * var(--ch));
+    display:grid;
+    grid-template-columns:repeat(80,var(--cw));
+    grid-template-rows:repeat(25,var(--ch));
+    background:#000;
+    color:#eee;
+    font-family:"Courier New", monospace;
+    font-size:var(--fs);
+    font-weight:bold;
+    line-height:var(--ch);
+    user-select:none;
+    outline:none;
+  }
+
+  .cell{
+    width:var(--cw);
+    height:var(--ch);
+    line-height:var(--ch);
+    text-align:left;
+    white-space:pre;
+  }
+
+  .w{color:#e8e8e8}
+  .g{color:#42ff55}
+  .y{color:#ffff36}
+  .r{color:#ff6464}
+  .c{color:#4dffff}
+  .o{color:#b56a00}
+  .m{color:#5a5a5a}
+  .d{color:#4b4b4b}
+  .k{color:#000}
+
+  .rev.o{
+    color:#000;
+    background:#b56a00;
+  }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <div id="screen" tabindex="0"></div>
+</div>
+
+<script>
+(() => {
+  "use strict";
+
+  const COLS = 80;
+  const ROWS = 25;
+
+  /*
+    Screenshot-Wert: FA / 250.
+    Wenn du den originalen Source-Startwert willst:
+    START_VALUE = 0x80;
+  */
+  const START_VALUE = 0xFA;
+
+  const screen = document.getElementById("screen");
+  const wrap = document.getElementById("wrap");
+
+  let value = START_VALUE & 255;
+  let flags = { n:0, z:0, c:0 };
+  let mode = "main";
+  let stopped = false;
+
+  let cells = [];
+
+  const bitBoxX = [0,6,12,18,27,33,39,45];
+  const bitInsideX = bitBoxX.map(x => x + 1);
+  const productRowsForBit7To0 = [21,20,19,18,17,16,15,14];
+
+  function fit(){
+    const baseW = 80 * 12;
+    const baseH = 25 * 20;
+    const s = Math.min(window.innerWidth / baseW, window.innerHeight / baseH, 1.35);
+    wrap.style.transform = `scale(${s})`;
+  }
+
+  window.addEventListener("resize", fit);
+
+  function makeCells(){
+    screen.innerHTML = "";
+    cells = [];
+    for(let y=0;y<ROWS;y++){
+      const row = [];
+      for(let x=0;x<COLS;x++){
+        const div = document.createElement("div");
+        div.className = "cell w";
+        div.textContent = " ";
+        div.style.gridColumn = String(x + 1);
+        div.style.gridRow = String(y + 1);
+        screen.appendChild(div);
+        row.push(div);
+      }
+      cells.push(row);
+    }
+  }
+
+  function clear(){
+    for(let y=0;y<ROWS;y++){
+      for(let x=0;x<COLS;x++){
+        const el = cells[y][x];
+        el.textContent = " ";
+        el.className = "cell w";
+      }
+    }
+  }
+
+  function put(x,y,ch,col="w",rev=false){
+    if(x < 0 || x >= COLS || y < 0 || y >= ROWS) return;
+    const el = cells[y][x];
+    el.textContent = ch[0] ?? " ";
+    el.className = "cell " + col + (rev ? " rev" : "");
+  }
+
+  function write(x,y,text,col="w"){
+    text = String(text).toUpperCase();
+    for(let i=0;i<text.length;i++){
+      put(x+i,y,text[i],col);
+    }
+  }
+
+  function hline(x1,x2,y,col="w"){
+    for(let x=x1;x<=x2;x++) put(x,y,"─",col);
+  }
+
+  function vline(x,y1,y2,col="w"){
+    for(let y=y1;y<=y2;y++) put(x,y,"│",col);
+  }
+
+  function box(x,y,w,h,col="w"){
+    put(x,y,"┌",col);
+    hline(x+1,x+w-2,y,col);
+    put(x+w-1,y,"┐",col);
+
+    for(let yy=y+1; yy<y+h-1; yy++){
+      put(x,yy,"│",col);
+      put(x+w-1,yy,"│",col);
+    }
+
+    put(x,y+h-1,"└",col);
+    hline(x+1,x+w-2,y+h-1,col);
+    put(x+w-1,y+h-1,"┘",col);
+  }
+
+  function hex2(v){
+    return v.toString(16).toUpperCase().padStart(2,"0");
+  }
+
+  function bin8(v){
+    return v.toString(2).padStart(8,"0");
+  }
+
+  function dec3(v){
+    return String(v).padStart(3," ");
+  }
+
+  function setNZC(result, carry){
+    result &= 255;
+    flags.n = (result & 0x80) ? 1 : 0;
+    flags.z = result === 0 ? 1 : 0;
+    flags.c = carry ? 1 : 0;
+  }
+
+  function drawMainStatic(){
+    clear();
+
+    write(0,0,"HEX BIN DEC VISUALIZER","g");
+    write(58,0,"C128 VDC VERSION 2025","w");
+
+    // Obere HEX-Struktur
+    box(9,2,3,3,"g");
+    box(22,2,4,3,"g");
+    box(36,2,3,3,"g");
+
+    hline(12,21,3,"g");
+    hline(26,35,3,"g");
+    vline(10,5,6,"g");
+    vline(37,5,6,"g");
+
+    hline(2,18,6,"y");
+    hline(29,45,6,"y");
+
+    for(const x of [2,7,13,18]) vline(x,6,7,"y");
+    for(const x of [29,34,40,45]) vline(x,6,7,"y");
+
+    // Bitboxen
+    for(const x of bitBoxX){
+      box(x,7,3,3,"y");
+    }
+
+    const labels = ["2↑7","2↑6","2↑5","2↑4","2↑3","2↑2","2↑1","2↑0"];
+    for(let i=0;i<8;i++){
+      write(bitBoxX[i],11,labels[i],"d");
+    }
+
+    // Graue Leitungen
+    const starts = bitInsideX;
+    for(let i=0;i<8;i++){
+      const sx = starts[i];
+      const row = productRowsForBit7To0[i];
+
+      vline(sx,13,row,"m");
+      put(sx,row,"└","m");
+      hline(sx+1,57,row,"m");
+    }
+
+    // Rechte Anzeigen
+    write(64,3,"FA","g");
+    write(70,3,"HEX","g");
+
+    write(59,8,"11111010","y");
+    write(70,8,"BIN","y");
+
+    // Multiplikationstabelle
+    const weights = [1,2,4,8,16,32,64,128];
+    for(let i=0;i<8;i++){
+      const y = 14+i;
+      write(59,y,"0","y");
+      write(61,y,"*","m");
+      write(65,y,String(weights[i]).padStart(3," "),"m");
+      write(70,y,"=","m");
+      write(72,y,"  0","c");
+    }
+
+    write(69,22,"---","m");
+    write(69,23,"250","c");
+    write(76,23,"DEC","c");
+
+    // Bedienzeilen
+    write(0,23,"[CR UP]   +1  [<] ASL  ROL [N] C0 [V] C1  [Q] QUIT","r");
+    write(55,23,"NZC FLAG","o");
+
+    write(0,24,"[CR DOWN] -1  [>] LSR  ROR [M] C0 [B] C1  [H] HELP","r");
+    write(55,24,"000","o");
+  }
+
+  function drawDynamic(){
+    const hx = hex2(value);
+    const bn = bin8(value);
+
+    // HEX
+    write(10,3,hx[0],"g");
+    write(23,3,hx[0],"g");
+    write(24,3,hx[1],"g");
+    write(37,3,hx[1],"g");
+    write(64,3,hx,"g");
+
+    // BIN
+    for(let i=0;i<8;i++){
+      const bit = bn[i];
+
+      write(bitInsideX[i],8,bit,"y");
+      write(59+i,8,bit,"y");
+
+      const bitIndex = 7 - i;
+      const row = 14 + bitIndex;
+      const weight = 1 << bitIndex;
+      const result = bit === "1" ? weight : 0;
+
+      write(59,row,bit,"y");
+      write(72,row,String(result).padStart(3," "),"c");
+    }
+
+    // DEC
+    write(69,23,dec3(value),"c");
+
+    // NZC
+    put(55,24,String(flags.n),"o",!!flags.n);
+    put(56,24,String(flags.z),"o",!!flags.z);
+    put(57,24,String(flags.c),"o",!!flags.c);
+  }
+
+  function drawMain(){
+    mode = "main";
+    drawMainStatic();
+    drawDynamic();
+  }
+
+  function drawHelp(){
+    mode = "help";
+    clear();
+
+    write(0,0,"HELP","w");
+    write(55,0,"PRESS ANY KEY TO EXIT","w");
+
+    write(0,4,"[CR UP]   +1 INCREMENT) VALUE","r");
+    write(0,5,"[CR DOWN] -1 DECREMENT) VALUE","r");
+
+    write(0,7,"[<] ASL       ARITHMETIC SHIFT LEFT","r");
+    write(0,8,"[>] LSR       LOGIC SHIFT RIGHT","r");
+
+    write(0,11,"ROL [N] C0    ROTATE LEFT   CARRY FLAG 0","r");
+    write(0,12,"ROR [M] C0    ROTATE RIGHT  CARRY FLAG 0","r");
+
+    write(0,15,"ROL [V] C1    ROTATE LEFT   CARRY FLAG 1","r");
+    write(0,16,"ROR [B] C1    ROTATE RIGHT  CARRY FLAG 1","r");
+
+    write(0,20,"[Q] QUIT      EXIT PROGRAM","r");
+    write(0,21,"[H] HELP      SHOW THIS HELP SCREEN","r");
+
+    write(55,4,"PROCESSOR STATUS REGISTER","w");
+
+    write(55,6,"N","o");
+    write(58,6,"NEGATIVE FLAG","w");
+
+    write(55,9,"Z","o");
+    write(58,9,"ZERO FLAG","w");
+
+    write(55,12,"C","o");
+    write(58,12,"CARRY FLAG","w");
+  }
+
+  function drawExit(){
+    stopped = true;
+    clear();
+    write(0,0,"C128 VDC VERSION 2025","w");
+    write(0,2,"PROGRAM ENDED","r");
+    write(0,4,"READY.","w");
+  }
+
+  function incValue(){
+    value = (value + 1) & 255;
+    setNZC(value,0);
+    drawMain();
+  }
+
+  function decValue(){
+    value = (value - 1) & 255;
+    setNZC(value,0);
+    drawMain();
+  }
+
+  function asl(){
+    const carry = (value & 0x80) ? 1 : 0;
+    value = (value << 1) & 255;
+    setNZC(value,carry);
+    drawMain();
+  }
+
+  function lsr(){
+    const carry = value & 1;
+    value = (value >>> 1) & 255;
+    setNZC(value,carry);
+    drawMain();
+  }
+
+  function rol(carryIn){
+    const carry = (value & 0x80) ? 1 : 0;
+    value = ((value << 1) & 255) | (carryIn ? 1 : 0);
+    setNZC(value,carry);
+    drawMain();
+  }
+
+  function ror(carryIn){
+    const carry = value & 1;
+    value = (value >>> 1) | (carryIn ? 0x80 : 0);
+    value &= 255;
+    setNZC(value,carry);
+    drawMain();
+  }
+
+  window.addEventListener("keydown", e => {
+    if(stopped) return;
+
+    if(mode === "help"){
+      e.preventDefault();
+      drawMain();
+      return;
+    }
+
+    const k = e.key;
+    const low = k.toLowerCase();
+
+    if(k === "ArrowUp"){
+      e.preventDefault();
+      incValue();
+    }
+    else if(k === "ArrowDown"){
+      e.preventDefault();
+      decValue();
+    }
+    else if(k === "ArrowLeft" || k === "<" || k === ","){
+      e.preventDefault();
+      asl();
+    }
+    else if(k === "ArrowRight" || k === ">" || k === "."){
+      e.preventDefault();
+      lsr();
+    }
+    else if(low === "n"){
+      e.preventDefault();
+      rol(0);
+    }
+    else if(low === "m"){
+      e.preventDefault();
+      ror(0);
+    }
+    else if(low === "v"){
+      e.preventDefault();
+      rol(1);
+    }
+    else if(low === "b"){
+      e.preventDefault();
+      ror(1);
+    }
+    else if(low === "h"){
+      e.preventDefault();
+      drawHelp();
+    }
+    else if(low === "q"){
+      e.preventDefault();
+      drawExit();
+    }
+  });
+
+  makeCells();
+  fit();
+  drawMain();
+  screen.focus();
+})();
+</script>
+</body>
+</html>
