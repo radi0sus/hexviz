@@ -325,6 +325,14 @@ function putSC(x, y, byte, fg = C.white, bg = BG){
   put(x, y, scChar(byte), fg, bg);
 }
 
+function petsciiChar(byte){
+  return String.fromCodePoint(0xe000 + (byte & 0xff));
+}
+
+function putPETSCII(x, y, byte, fg = FG, bg = BG){
+  put(x, y, petsciiChar(byte), fg, bg);
+}
+
 function putSCBytes(x, y, bytes, color){
   for(let i = 0; i < bytes.length; i++){
     putSC(x + i, y, bytes[i], color);
@@ -756,7 +764,7 @@ function drawHelp(){
 }
 
 /* ─────────────────────────────────────────────────────────────
-   Exit-Screen mit READY. und blinkendem Cursor darunter
+   Exit-Screen: BASIC-Maze eintippen, RUN, dann Maze starten
    ───────────────────────────────────────────────────────────── */
 
 function drawExit(){
@@ -770,20 +778,173 @@ function drawExit(){
 
   clear();
 
-  write(0, 0, "READY.", FG, BG);
-
+  let x = 0;
+  let y = 0;
   let cursorVisible = false;
 
-  exitCursorTimer = setInterval(() => {
-    cursorVisible = !cursorVisible;
+  function scrollIfNeeded(){
+    if(y < ROWS) return;
+
+    for(let yy = 1; yy < ROWS; yy++){
+      for(let xx = 0; xx < COLS; xx++){
+        const from = cells[yy][xx];
+        const to   = cells[yy - 1][xx];
+
+        /*
+          Wichtig:
+          Nur innerHTML kopieren.
+          Nicht textContent setzen, sonst geht der .g-Span verloren
+          und die Zeichen werden nach dem Scrollen halbhoch.
+        */
+        to.innerHTML = from.innerHTML;
+        to.style.color = from.style.color;
+        to.style.backgroundColor = from.style.backgroundColor;
+      }
+    }
+
+    for(let xx = 0; xx < COLS; xx++){
+      put(xx, ROWS - 1, " ", FG, BG);
+    }
+
+    y = ROWS - 1;
+  }
+
+  function newline(){
+    putScreenByte(x, y, 0x20);
+    x = 0;
+    y++;
+    scrollIfNeeded();
+  }
+
+  function drawCursor(){
+    putScreenByte(x, y, cursorVisible ? 0xA0 : 0x20);
+  }
+
+  function clearCursor(){
+    putScreenByte(x, y, 0x20);
+  }
+
+  function startCursor(){
+    if(exitCursorTimer){
+      clearInterval(exitCursorTimer);
+    }
+
+    cursorVisible = false;
+
+    exitCursorTimer = setInterval(() => {
+      cursorVisible = !cursorVisible;
+      drawCursor();
+    }, 400);
+  }
+
+  function stopCursor(){
+    if(exitCursorTimer){
+      clearInterval(exitCursorTimer);
+      exitCursorTimer = null;
+    }
+
+    clearCursor();
+  }
+
+  function typeText(text, done, minDelay = 85, randomDelay = 70){
+    let i = 0;
+
+    function next(){
+      if(i >= text.length){
+        if(done) done();
+        return;
+      }
+
+      clearCursor();
+
+      put(x, y, text[i], FG, BG);
+
+      x++;
+      i++;
+
+      if(x >= COLS){
+        x = 0;
+        y++;
+        scrollIfNeeded();
+      }
+
+      cursorVisible = true;
+      drawCursor();
+
+      setTimeout(next, minDelay + Math.random() * randomDelay);
+    }
+
+    next();
+  }
+
+  function startMaze(){
+    stopCursor();
 
     /*
-      Cursor unter READY.
-      x = 0
-      y = 1
+      Langsamer als vorher:
+      nur ein Maze-Zeichen pro Tick.
     */
-    putScreenByte(0, 1, cursorVisible ? 0xA0 : 0x20);
-  }, 400);
+    setInterval(() => {
+      const ch = Math.random() < 0.5 ? 205 : 206;
+
+      putPETSCII(x, y, ch, FG, BG);
+
+      x++;
+
+      if(x >= COLS){
+        x = 0;
+        y++;
+        scrollIfNeeded();
+      }
+    }, 38);
+  }
+
+  /*
+    Richtiger BASIC-Ablauf:
+    
+    READY.
+    10 PRINT ...
+    RUN
+    Maze
+  */
+
+  write(0, 0, "READY.", FG, BG);
+
+  x = 0;
+  y = 1;
+
+  startCursor();
+
+  setTimeout(() => {
+    typeText('10 PRINT CHR$(205.5+RND(1)); : GOTO 10', () => {
+
+      /*
+        ENTER nach der Programmzeile.
+        Kein READY. danach!
+        Nur neue Zeile mit blinkendem Cursor.
+      */
+      setTimeout(() => {
+        newline();
+
+        setTimeout(() => {
+          typeText("RUN", () => {
+
+            /*
+              ENTER nach RUN.
+              Danach beginnt sofort die Ausgabe.
+            */
+            setTimeout(() => {
+              newline();
+              startMaze();
+            }, 650);
+
+          }, 100, 80);
+        }, 900);
+
+      }, 700);
+
+    }, 90, 80);
+  }, 900);
 }
 
 /* ─────────────────────────────────────────────────────────────
