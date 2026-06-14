@@ -4,613 +4,1058 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>C128 VDC HEX BIN DEC Visualizer</title>
+
 <style>
-  :root{
-    --cw:12px;
-    --ch:20px;
-    --fs:18px;
-  }
+/* ─────────────────────────────────────────────────────────────
+   C64 TrueType Font
+   ───────────────────────────────────────────────────────────── */
+@font-face {
+  font-family: "C64 Pro Mono";
+  src:
+    url("./fonts/C64_Pro_Mono-STYLE.woff2") format("woff2"),
+    url("./fonts/C64_Pro_Mono-STYLE.woff") format("woff"),
+    url("./fonts/C64_Pro_Mono-STYLE.ttf") format("truetype");
+  font-weight: normal;
+  font-style: normal;
+  font-display: block;
+}
 
-  html,body{
-    margin:0;
-    width:100%;
-    height:100%;
-    background:#000;
-    overflow:hidden;
-    display:grid;
-    place-items:center;
-  }
+/* ─────────────────────────────────────────────────────────────
+   C128-VDC-artiger 80×25-Textscreen
+   ───────────────────────────────────────────────────────────── */
+:root{
+  --cw: 8px;
+  --ch: 16px;
+  --fs: 8px;
+  --glyph-scale-y: 2;
 
-  #wrap{
-    transform-origin:center center;
-  }
+  --bg:#000000;
+  --fg:#42ffff;
+}
 
-  #screen{
-    width:calc(80 * var(--cw));
-    height:calc(25 * var(--ch));
-    display:grid;
-    grid-template-columns:repeat(80,var(--cw));
-    grid-template-rows:repeat(25,var(--ch));
-    background:#000;
-    color:#eee;
-    font-family:"Courier New", monospace;
-    font-size:var(--fs);
-    font-weight:bold;
-    line-height:var(--ch);
-    user-select:none;
-    outline:none;
-  }
+html,body{
+  margin:0;
+  width:100%;
+  height:100%;
+  background:#000;
+  overflow:hidden;
+}
 
-  .cell{
-    width:var(--cw);
-    height:var(--ch);
-    line-height:var(--ch);
-    text-align:left;
-    white-space:pre;
-  }
+body{
+  display:grid;
+  place-items:center;
+}
 
-  .cell.clickable{
-    cursor:pointer;
-  }
+#wrap{
+  transform-origin:center center;
+}
 
-  .w{color:#e8e8e8}
-  .g{color:#42ff55}
-  .y{color:#ffff36}
-  .r{color:#ff6464}
-  .c{color:#4dffff}
-  .o{color:#b56a00}
-  .m{color:#5a5a5a}
-  .d{color:#4b4b4b}
-  .k{color:#000}
+#screen{
+  width:calc(80 * var(--cw));
+  height:calc(25 * var(--ch));
+  display:grid;
+  grid-template-columns:repeat(80,var(--cw));
+  grid-template-rows:repeat(25,var(--ch));
+  background:var(--bg);
+  color:var(--fg);
+  font-family:"C64 Pro Mono", monospace;
+  font-size:var(--fs);
+  font-weight:normal;
+  line-height:1;
+  user-select:none;
+  outline:none;
+  gap:0;
+  cursor:default;
+}
 
-  .rev.o{
-    color:#000;
-    background:#b56a00;
-  }
+.cell{
+  width:var(--cw);
+  height:var(--ch);
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  overflow:hidden;
+  white-space:pre;
+  line-height:1;
+}
+
+.cell .g{
+  display:block;
+  width:1em;
+  height:1em;
+  line-height:1;
+  text-align:center;
+  transform:scaleY(var(--glyph-scale-y));
+  transform-origin:center center;
+}
+
+.cell.clickable{
+  cursor:pointer;
+}
+
+#license{
+  position:fixed;
+  left:0;
+  right:0;
+  bottom:0;
+  padding:3px 6px;
+  font:18px system-ui,sans-serif;
+  text-align:center;
+  color:#42ffff;
+  background:#000;
+  opacity:.72;
+}
+
+#license a{
+  color:#42ffff;
+}
 </style>
 </head>
+
 <body>
 <div id="wrap">
   <div id="screen" tabindex="0"></div>
 </div>
 
+<div id="license">
+  C64 TrueType fonts © STYLE —
+  <a href="https://style64.org/c64-truetype" target="_blank" rel="noopener">
+    https://style64.org/c64-truetype
+  </a>
+</div>
+
 <script>
 (() => {
-  "use strict";
+"use strict";
 
-  const COLS = 80;
-  const ROWS = 25;
+/* ─────────────────────────────────────────────────────────────
+   Grundkonstanten
+   ───────────────────────────────────────────────────────────── */
 
+const COLS = 80;
+const ROWS = 25;
+
+const START_VALUE = 0x80;
+
+const screen = document.getElementById("screen");
+const wrap   = document.getElementById("wrap");
+
+let cells = [];
+
+let value = START_VALUE & 255;
+let flags = { n:0, z:0, c:0 };
+
+let mode = "boot";
+let stopped = false;
+
+let exitCursorTimer = null;
+
+/* ─────────────────────────────────────────────────────────────
+   Farben
+   ───────────────────────────────────────────────────────────── */
+
+const C = {
+  bg:     "#000000",
+  boot:   "#42ffff",
+
+  white:  "#e8e8e8",
+  green:  "#42ff55",
+  yellow: "#ffff36",
+  red:    "#ff6464",
+  cyan:   "#4dffff",
+  orange: "#ff8000",
+  grey:   "#5a5a5a",
+  dark:   "#4b4b4b",
+  black:  "#000000"
+};
+
+const BG = C.bg;
+const FG = C.boot;
+
+/* ─────────────────────────────────────────────────────────────
+   C64-Pro-Mono Screen-Code-Konvertierung
+
+   Wichtig:
+   - High-Bit bedeutet Reverse-Glyph.
+   - Keine zusätzliche Farb-Invertierung.
+   - Dadurch funktioniert 0xA0 als blinkender Blockcursor.
+   ───────────────────────────────────────────────────────────── */
+
+function screenByteToCodePoint(byte){
+  byte &= 0xff;
+
+  const reverse = byte >= 0x80;
+  const sc = byte & 0x7f;
+
+  let petscii;
+
+  if(sc <= 0x1f){
+    petscii = 0x40 + sc;
+  } else if(sc <= 0x3f){
+    petscii = sc;
+  } else if(sc <= 0x5f){
+    petscii = 0x60 + (sc - 0x40);
+  } else {
+    petscii = 0xa0 + (sc - 0x60);
+  }
+
+  return (reverse ? 0xe200 : 0xe000) + petscii;
+}
+
+function scChar(byte){
+  return String.fromCodePoint(screenByteToCodePoint(byte));
+}
+
+/* ─────────────────────────────────────────────────────────────
+   C64/PETSCII-Grafikzeichen
+
+   Diese ersetzen Unicode-Zeichen wie ┌ ─ │ ┘.
+   ───────────────────────────────────────────────────────────── */
+
+const SC = {
+  space: 0x20,
+
+  zero:  0x30,
+  one:   0x31,
+  two:   0x32,
+
+  // C64-Screen-Code für den Pfeil nach oben
+  upArrow: 0x1e,
+
+  // C64/PETSCII-Box-Zeichen
+  boxTL: 0x4f,
+  boxTR: 0x50,
+  boxBL: 0x4c,
+  boxBR: 0x7a,
+
+  // Wichtig: oben und unten sind NICHT dasselbe Zeichen
+  boxTopH:    0x77,
+  boxBottomH: 0x6f,
+
+  // Wichtig: links und rechts sind NICHT dasselbe Zeichen
+  boxLeftV:  0x74,
+  boxRightV: 0x67,
+
+  // Linien
+  busH:  0x40,
+  wireH: 0x43,
+  wireV: 0x42,
+
+  // Knick von vertikal nach horizontal rechts
+  wireCorner: 0x6d
+};
+
+/* ─────────────────────────────────────────────────────────────
+   Layout-Skalierung
+   ───────────────────────────────────────────────────────────── */
+
+function fit(){
+  const baseW = 80 * 8;
+  const baseH = 25 * 16;
+
+  let s = Math.min(
+    Math.floor(window.innerWidth / baseW),
+    Math.floor((window.innerHeight - 20) / baseH)
+  );
+
+  if(s < 1) s = 1;
+
+  wrap.style.zoom = s;
+}
+
+window.addEventListener("resize", fit);
+
+/* ─────────────────────────────────────────────────────────────
+   Zellen erzeugen
+   ───────────────────────────────────────────────────────────── */
+
+function makeCells(){
+  screen.innerHTML = "";
+  cells = [];
+
+  for(let y = 0; y < ROWS; y++){
+    const row = [];
+
+    for(let x = 0; x < COLS; x++){
+      const el = document.createElement("div");
+
+      el.className = "cell";
+      el.textContent = " ";
+      el.style.color = FG;
+      el.style.backgroundColor = BG;
+      el.style.gridColumn = String(x + 1);
+      el.style.gridRow = String(y + 1);
+
+      screen.appendChild(el);
+      row.push(el);
+    }
+
+    cells.push(row);
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────
+   Basis-Ausgabe
+   ───────────────────────────────────────────────────────────── */
+
+function put(x, y, ch, fg = C.white, bg = BG){
+  if(x < 0 || x >= COLS || y < 0 || y >= ROWS) return;
+
+  const el = cells[y][x];
+
+  el.innerHTML = "";
+  el.style.color = fg;
+  el.style.backgroundColor = bg;
+
+  ch = ch || " ";
+
+  if(ch === " "){
+    el.textContent = " ";
+    return;
+  }
+
+  const span = document.createElement("span");
+  span.className = "g";
+  span.textContent = ch;
+
+  el.appendChild(span);
+}
+
+function putSC(x, y, byte, fg = C.white, bg = BG){
+  put(x, y, scChar(byte), fg, bg);
+}
+
+function putSCBytes(x, y, bytes, color){
+  for(let i = 0; i < bytes.length; i++){
+    putSC(x + i, y, bytes[i], color);
+  }
+}
+
+function drawTopHexWiring(){
   /*
-    Screenshot-Wert: FA / 250.
-    Wenn du den originalen Source-Startwert willst:
-    START_VALUE = 0x80;
+    Grüne Verbindungslinien zwischen den oberen HEX-Kästchen.
+
+    Wichtig:
+    Der rechte Rand der mittleren HEX-Box ist im Original kein normales
+    rechtes Box-Zeichen, sondern ein Anschluss-Zeichen 0x6a.
   */
-  const START_VALUE = 0xFA;
 
-  const screen = document.getElementById("screen");
-  const wrap = document.getElementById("wrap");
+  // Verbindung erstes HEX-Kästchen -> mittleres HEX-Kästchen
+  putSC(11, 3, 0x67, C.green);
+  putSCBytes(12, 3, [
+    0x40,0x40,0x40,0x40,0x40,
+    0x40,0x40,0x40,0x40,0x40
+  ], C.green);
 
-  let value = START_VALUE & 255;
-  let flags = { n:0, z:0, c:0 };
-  let mode = "main";
-  let stopped = false;
+  // Verbindung mittleres HEX-Kästchen -> rechtes HEX-Kästchen
+  putSC(25, 3, 0x6a, C.green);
+  putSCBytes(26, 3, [
+    0x40,0x40,0x40,0x40,0x40,
+    0x40,0x40,0x40,0x40,0x40
+  ], C.green);
 
-  let cells = [];
+  // Senkrechte Abgänge von HEX zu BIN-Bus
+  putSC(10, 5, 0x42, C.green);
+  putSC(37, 5, 0x42, C.green);
+}
 
-  const bitBoxX = [0,6,12,18,27,33,39,45];
-  const bitInsideX = bitBoxX.map(x => x + 1);
-  const productRowsForBit7To0 = [21,20,19,18,17,16,15,14];
 
-  function fit(){
-    const baseW = 80 * 12;
-    const baseH = 25 * 20;
-    const s = Math.min(window.innerWidth / baseW, window.innerHeight / baseH, 1.35);
-    wrap.style.transform = `scale(${s})`;
+function drawUpperBitBus(){
+  /*
+    Gelbe Bus-Leitungen oberhalb der Bit-Kästchen.
+
+    Diese Zeile ist aus dem ursprünglichen VDC-Screen nachgebaut.
+    Sie besteht aus Anschlusszeichen, nicht aus simplen Linien.
+
+    Linke Gruppe:  bit 7..4
+    Rechte Gruppe: bit 3..0
+  */
+
+  const bus = [
+    0x70,
+    0x40,0x40,0x40,0x40,0x40,
+    0x72,
+    0x43,0x43,
+    0x71,
+    0x40,0x40,
+    0x72,
+    0x40,0x40,0x40,0x40,0x40,
+    0x6e
+  ];
+
+  // Linker Bus über den ersten vier Bit-Kästchen
+  putSCBytes(1, 6, bus, C.yellow);
+
+  // Rechter Bus über den letzten vier Bit-Kästchen
+  putSCBytes(28, 6, bus, C.yellow);
+}
+
+function putScreenByte(x, y, byte){
+  putSC(x, y, byte, FG, BG);
+}
+
+function write(x, y, text, fg = C.white, bg = BG){
+  text = String(text).toUpperCase();
+
+  for(let i = 0; i < text.length; i++){
+    put(x + i, y, text[i], fg, bg);
   }
+}
 
-  window.addEventListener("resize", fit);
-
-  function makeCells(){
-    screen.innerHTML = "";
-    cells = [];
-    for(let y=0;y<ROWS;y++){
-      const row = [];
-      for(let x=0;x<COLS;x++){
-        const div = document.createElement("div");
-        div.className = "cell w";
-        div.textContent = " ";
-        div.style.gridColumn = String(x + 1);
-        div.style.gridRow = String(y + 1);
-        screen.appendChild(div);
-        row.push(div);
-      }
-      cells.push(row);
-    }
-  }
-
-  function clear(){
-    for(let y=0;y<ROWS;y++){
-      for(let x=0;x<COLS;x++){
-        const el = cells[y][x];
-        el.textContent = " ";
-        el.className = "cell w";
-        delete el.dataset.action;
-      }
-    }
-  }
-
-  function put(x,y,ch,col="w",rev=false){
-    if(x < 0 || x >= COLS || y < 0 || y >= ROWS) return;
-    const el = cells[y][x];
-    el.textContent = ch[0] ?? " ";
-    el.className = "cell " + col + (rev ? " rev" : "");
-    delete el.dataset.action;
-  }
-
-  function write(x,y,text,col="w"){
-    text = String(text).toUpperCase();
-    for(let i=0;i<text.length;i++){
-      put(x+i,y,text[i],col);
-    }
-  }
-
-  function hline(x1,x2,y,col="w"){
-    for(let x=x1;x<=x2;x++) put(x,y,"─",col);
-  }
-
-  function vline(x,y1,y2,col="w"){
-    for(let y=y1;y<=y2;y++) put(x,y,"│",col);
-  }
-
-  function box(x,y,w,h,col="w"){
-    put(x,y,"┌",col);
-    hline(x+1,x+w-2,y,col);
-    put(x+w-1,y,"┐",col);
-
-    for(let yy=y+1; yy<y+h-1; yy++){
-      put(x,yy,"│",col);
-      put(x+w-1,yy,"│",col);
-    }
-
-    put(x,y+h-1,"└",col);
-    hline(x+1,x+w-2,y+h-1,col);
-    put(x+w-1,y+h-1,"┘",col);
-  }
-
-  function hex2(v){
-    return v.toString(16).toUpperCase().padStart(2,"0");
-  }
-
-  function bin8(v){
-    return v.toString(2).padStart(8,"0");
-  }
-
-  function dec3(v){
-    return String(v).padStart(3," ");
-  }
-
-  function setNZC(result, carry){
-    result &= 255;
-    flags.n = (result & 0x80) ? 1 : 0;
-    flags.z = result === 0 ? 1 : 0;
-    flags.c = carry ? 1 : 0;
-  }
-
-  // ─── Touch-/Maus-Hilfen ───────────────────────────────────────────
-
-  function markRange(x1,x2,y,action){
-    for(let x=x1; x<=x2; x++){
-      if(x < 0 || x >= COLS || y < 0 || y >= ROWS) continue;
+function clear(){
+  for(let y = 0; y < ROWS; y++){
+    for(let x = 0; x < COLS; x++){
       const el = cells[y][x];
+
+      el.classList.remove("clickable");
+      delete el.dataset.action;
+
+      put(x, y, " ", FG, BG);
+    }
+  }
+}
+
+function wait(ms){
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+/* ─────────────────────────────────────────────────────────────
+   Grafik-Helfer
+   ───────────────────────────────────────────────────────────── */
+
+function hline(x1, x2, y, color = C.white, byte = SC.busH){
+  for(let x = x1; x <= x2; x++){
+    putSC(x, y, byte, color);
+  }
+}
+
+function vline(x, y1, y2, color = C.white, byte = SC.wireV){
+  for(let y = y1; y <= y2; y++){
+    putSC(x, y, byte, color);
+  }
+}
+
+function box(x, y, w, h, color = C.white){
+  if(w < 2 || h < 2) return;
+
+  // Ecken
+  putSC(x,         y,         SC.boxTL, color);
+  putSC(x + w - 1, y,         SC.boxTR, color);
+  putSC(x,         y + h - 1, SC.boxBL, color);
+  putSC(x + w - 1, y + h - 1, SC.boxBR, color);
+
+  // Obere und untere Kante
+  // Achtung: oben 0x77, unten 0x6f
+  for(let xx = x + 1; xx < x + w - 1; xx++){
+    putSC(xx, y,         SC.boxTopH, color);
+    putSC(xx, y + h - 1, SC.boxBottomH, color);
+  }
+
+  // Linke und rechte Kante
+  // Achtung: links 0x74, rechts 0x67
+  for(let yy = y + 1; yy < y + h - 1; yy++){
+    putSC(x,         yy, SC.boxLeftV, color);
+    putSC(x + w - 1, yy, SC.boxRightV, color);
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────
+   Umrechnungs-Helfer
+   ───────────────────────────────────────────────────────────── */
+
+function hex2(v){
+  return v.toString(16).toUpperCase().padStart(2, "0");
+}
+
+function bin8(v){
+  return v.toString(2).padStart(8, "0");
+}
+
+function dec3(v){
+  return String(v).padStart(3, " ");
+}
+
+function setNZC(result, carry){
+  result &= 255;
+
+  flags.n = (result & 0x80) ? 1 : 0;
+  flags.z = result === 0 ? 1 : 0;
+  flags.c = carry ? 1 : 0;
+}
+
+/* ─────────────────────────────────────────────────────────────
+   Klickbereiche
+   ───────────────────────────────────────────────────────────── */
+
+function markRange(x1, x2, y, action){
+  for(let x = x1; x <= x2; x++){
+    if(x < 0 || x >= COLS || y < 0 || y >= ROWS) continue;
+
+    const el = cells[y][x];
+    el.classList.add("clickable");
+    el.dataset.action = action;
+  }
+}
+
+function markBox(x, y, w, h, action){
+  for(let yy = y; yy < y + h; yy++){
+    for(let xx = x; xx < x + w; xx++){
+      if(xx < 0 || xx >= COLS || yy < 0 || yy >= ROWS) continue;
+
+      const el = cells[yy][xx];
       el.classList.add("clickable");
       el.dataset.action = action;
     }
   }
+}
 
-  function markBox(x,y,w,h,action){
-    for(let yy=y; yy<y+h; yy++){
-      for(let xx=x; xx<x+w; xx++){
-        if(xx < 0 || xx >= COLS || yy < 0 || yy >= ROWS) continue;
-        const el = cells[yy][xx];
-        el.classList.add("clickable");
-        el.dataset.action = action;
-      }
-    }
+function markMainControls(){
+  /*
+    Bedienzeile 23:
+    [CR UP]   +1  [<] ASL  ROL [N] C0 [V] C1  [Q] QUIT
+
+    Bedienzeile 24:
+    [CR DOWN] -1  [>] LSR  ROR [M] C0 [B] C1  [H] HELP
+  */
+
+  markRange(0, 12, 23, "inc");
+  markRange(14, 20, 23, "asl");
+  markRange(23, 32, 23, "rol0");
+  markRange(34, 39, 23, "rol1");
+  markRange(42, 49, 23, "quit");
+
+  markRange(0, 12, 24, "dec");
+  markRange(14, 20, 24, "lsr");
+  markRange(23, 32, 24, "ror0");
+  markRange(34, 39, 24, "ror1");
+  markRange(42, 49, 24, "help");
+
+  /* Größere Touch-Flächen */
+  markBox(0,  22, 13, 2, "inc");
+  markBox(14, 22, 7,  2, "asl");
+  markBox(23, 22, 10, 2, "rol0");
+  markBox(34, 22, 6,  2, "rol1");
+  markBox(42, 22, 8,  2, "quit");
+
+  markBox(0,  24, 13, 1, "dec");
+  markBox(14, 24, 7,  1, "lsr");
+  markBox(23, 24, 10, 1, "ror0");
+  markBox(34, 24, 6,  1, "ror1");
+  markBox(42, 24, 8,  1, "help");
+}
+
+/* ─────────────────────────────────────────────────────────────
+   Hauptscreen: statischer Teil
+   ───────────────────────────────────────────────────────────── */
+
+const bitBoxX = [0, 6, 12, 18, 27, 33, 39, 45];
+const bitInsideX = bitBoxX.map(x => x + 1);
+const productRowsForBit7To0 = [21, 20, 19, 18, 17, 16, 15, 14];
+
+function drawMainStatic(){
+  clear();
+
+  // write(0, 0, "HEX BIN DEC VISUALIZER", C.green);
+  write(0, 0, "HEX", C.green);
+  write(4, 0, "BIN", C.yellow);
+  write(8, 0, "DEC", C.cyan);
+  write(12, 0, "VISUALIZER", C.white);
+  write(58, 0, "C128 VDC VERSION 2025", C.white);
+
+  /* Obere HEX-Struktur */
+  box(9,  2, 3, 3, C.green);
+  box(22, 2, 4, 3, C.green);
+  box(36, 2, 3, 3, C.green);
+  
+  /*
+    Obere Spezial-Leitungen.
+    Nicht mit normalen hline/vline zeichnen,
+    weil die Original-Glyphen spezielle Anschlussstücke verwenden.
+  */
+  drawTopHexWiring();
+  drawUpperBitBus();
+  
+  /* Bitboxen */
+  for(const x of bitBoxX){
+    box(x, 7, 3, 3, C.yellow);
   }
 
-  function markMainControls(){
+  /*
+    Potenzlabels.
+    Statt Unicode-Pfeil wird ^ benutzt, damit es im C64-Font
+    sauber bleibt.
+  */
+  const labels = ["2↑7","2↑6","2↑5","2↑4","2↑3","2↑2","2↑1","2↑0"];
+
+  for(let i = 0; i < 8; i++){
+    write(bitBoxX[i], 11, labels[i], C.dark);
+  }
+
+  /* Graue Leitungen von Bits zur Tabelle */
+  for(let i = 0; i < 8; i++){
+    const sx = bitInsideX[i];
+    const row = productRowsForBit7To0[i];
+  
+    // Vertikale graue Leitung
+    vline(sx, 13, row, C.grey, SC.wireV);
+  
+    // Richtiger PETSCII-Knick nach rechts
+    putSC(sx, row, SC.wireCorner, C.grey);
+  
+    // Horizontale graue Leitung
+    hline(sx + 1, 57, row, C.grey, SC.wireH);
+  }
+
+  /* Rechte Anzeigen */
+  //write(70, 3, "FA", C.green);
+  write(76, 3, "HEX", C.green);
+
+  //write(65, 8, "11111010", C.yellow);
+  write(76, 8, "BIN", C.yellow);
+
+  /* Multiplikationstabelle */
+  const weights = [1,2,4,8,16,32,64,128];
+
+  for(let i = 0; i < 8; i++){
+    const y = 14 + i;
+
+    write(59, y, "0", C.yellow);
+    write(61, y, "*", C.grey);
+    write(63, y, String(weights[i]).padStart(3, " "), C.grey);
+    write(67, y, "=", C.grey);
+    write(79, y, "  0", C.cyan);
+  }
+
+  write(69, 22, "---", C.grey);
+  write(69, 23, "250", C.cyan);
+  write(76, 23, "DEC", C.cyan);
+
+  /* Bedienzeilen */
+  write(0, 23, "[CR UP]   +1  [<] ASL  ROL [N] C0 [V] C1  [Q] QUIT", C.red);
+
+  /*
+    Gewünschtes Label:
+    hier jetzt direkt bearbeitbar.
+  */
+  write(52, 23, "NZC FLAG", C.orange);
+
+  write(0, 24, "[CR DOWN] -1  [>] LSR  ROR [M] C0 [B] C1  [H] HELP", C.red);
+  write(52, 24, "000", C.orange);
+}
+
+/* ─────────────────────────────────────────────────────────────
+   Hauptscreen: dynamischer Teil
+   ───────────────────────────────────────────────────────────── */
+
+function drawDynamic(){
+  const hx = hex2(value);
+  const bn = bin8(value);
+
+  /* HEX */
+  write(10, 3, hx[0], C.green);
+  write(23, 3, hx[0], C.green);
+  write(24, 3, hx[1], C.green);
+  write(37, 3, hx[1], C.green);
+  write(70, 3, hx, C.green);
+
+  /* BIN */
+  for(let i = 0; i < 8; i++){
+    const bit = bn[i];
+
+    write(bitInsideX[i], 8, bit, C.yellow);
+    write(64 + i, 8, bit, C.yellow);
+
+    const bitIndex = 7 - i;
+    const row = 14 + bitIndex;
+    const weight = 1 << bitIndex;
+    const result = bit === "1" ? weight : 0;
+
+    write(59, row, bit, C.yellow);
+    write(69, row, String(result).padStart(3, " "), C.cyan);
+  }
+
+  /* DEC */
+  write(69, 23, dec3(value), C.cyan);
+
+  /*
+    NZC-Flags.
+    Gesetzte Flags werden als Reverse-Glyph gezeichnet,
+    aber ohne CSS-Farbtausch.
+  */
+  putSC(52, 24, flags.n ? (SC.one | 0x80) : SC.zero, C.orange);
+  putSC(53, 24, flags.z ? (SC.one | 0x80) : SC.zero, C.orange);
+  putSC(54, 24, flags.c ? (SC.one | 0x80) : SC.zero, C.orange);
+}
+
+function drawMain(){
+  mode = "main";
+  drawMainStatic();
+  drawDynamic();
+  markMainControls();
+}
+
+/* ─────────────────────────────────────────────────────────────
+   Help-Screen
+   ───────────────────────────────────────────────────────────── */
+
+function drawHelp(){
+  mode = "help";
+  clear();
+
+  write(0, 0, "HELP", C.white);
+  write(55, 0, "PRESS ANY KEY TO EXIT", C.white);
+
+  write(0,  4, "[CR UP] +1", C.red);
+  write(14, 4, "INC(REMENT) VALUE", C.white);
+  write(0,  5, "[CR DOWN] -1 ", C.red);
+  write(14, 5, "DEC(REMENT) VALUE", C.white);
+
+
+  write(0, 7, "[<] ASL", C.red);
+  write(14, 7, "ARITHMETIC SHIFT LEFT", C.white);
+  
+  write(0, 8, "[>] LSR", C.red);
+  write(14, 8, "LOGIC SHIFT RIGHT", C.white);
+
+  write(0, 11, "ROL [N] C0", C.red);
+  write(14, 11, "ROTATE LEFT   CARRY FLAG 0", C.white);
+  
+  write(0, 12, "ROR [M] C0", C.red);
+  write(14, 12, "ROTATE RIGHT  CARRY FLAG 0", C.white);
+  
+  write(0, 15, "ROL [V] C1", C.red);
+  write(14, 15, "ROTATE LEFT   CARRY FLAG 1", C.white);
+  
+  write(0, 16, "ROR [B] C1", C.red);
+  write(14, 16, "ROTATE RIGHT  CARRY FLAG 1", C.white);
+  
+  write(0, 20, "[Q] QUIT", C.red);
+  write(14, 20, "EXIT PROGRAM", C.white);
+  
+  write(0, 21, "[H] HELP", C.red);
+  write(14, 21, "SHOW THIS HELP SCREEN", C.white);
+
+  write(55, 4, "PROCESSOR STATUS REGISTER", C.white);
+
+  write(55, 6, "N", C.orange);
+  write(58, 6, "NEGATIVE FLAG", C.white);
+
+  write(55, 9, "Z", C.orange);
+  write(58, 9, "ZERO FLAG", C.white);
+
+  write(55, 12, "C", C.orange);
+  write(58, 12, "CARRY FLAG", C.white);
+
+  /* Im Help-Screen reicht Klick/Tap irgendwo zum Zurückgehen */
+  for(let y = 0; y < ROWS; y++){
+    for(let x = 0; x < COLS; x++){
+      cells[y][x].classList.add("clickable");
+      cells[y][x].dataset.action = "helpBack";
+    }
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────
+   Exit-Screen mit READY. und blinkendem Cursor darunter
+   ───────────────────────────────────────────────────────────── */
+
+function drawExit(){
+  stopped = true;
+  mode = "exit";
+
+  if(exitCursorTimer){
+    clearInterval(exitCursorTimer);
+    exitCursorTimer = null;
+  }
+
+  clear();
+
+  write(0, 0, "READY.", FG, BG);
+
+  let cursorVisible = false;
+
+  exitCursorTimer = setInterval(() => {
+    cursorVisible = !cursorVisible;
+
     /*
-      Bedienzeile 23:
-      [CR UP]   +1  [<] ASL  ROL [N] C0 [V] C1  [Q] QUIT
-
-      Bedienzeile 24:
-      [CR DOWN] -1  [>] LSR  ROR [M] C0 [B] C1  [H] HELP
+      Cursor unter READY.
+      x = 0
+      y = 1
     */
+    putScreenByte(0, 1, cursorVisible ? 0xA0 : 0x20);
+  }, 400);
+}
 
-    // Exakte Textzonen oben
-    markRange(0,12,23,"inc");
-    markRange(14,20,23,"asl");
-    markRange(23,32,23,"rol0");
-    markRange(34,39,23,"rol1");
-    markRange(42,49,23,"quit");
+/* ─────────────────────────────────────────────────────────────
+   Operationen
+   ───────────────────────────────────────────────────────────── */
 
-    // Exakte Textzonen unten
-    markRange(0,12,24,"dec");
-    markRange(14,20,24,"lsr");
-    markRange(23,32,24,"ror0");
-    markRange(34,39,24,"ror1");
-    markRange(42,49,24,"help");
+function incValue(){
+  value = (value + 1) & 255;
+  setNZC(value, 0);
+  drawMain();
+}
 
-    // Größere Touch-Flächen für Fingerbedienung.
-    // Reihe 22 ist unsichtbare Zusatzfläche über den oberen Controls.
-    markBox(0,22,13,2,"inc");
-    markBox(14,22,7,2,"asl");
-    markBox(23,22,10,2,"rol0");
-    markBox(34,22,6,2,"rol1");
-    markBox(42,22,8,2,"quit");
+function decValue(){
+  value = (value - 1) & 255;
+  setNZC(value, 0);
+  drawMain();
+}
 
-    // Untere Controls separat markieren.
-    markBox(0,24,13,1,"dec");
-    markBox(14,24,7,1,"lsr");
-    markBox(23,24,10,1,"ror0");
-    markBox(34,24,6,1,"ror1");
-    markBox(42,24,8,1,"help");
-  }
+function asl(){
+  const carry = (value & 0x80) ? 1 : 0;
+  value = (value << 1) & 255;
+  setNZC(value, carry);
+  drawMain();
+}
 
-  function drawMainStatic(){
-    clear();
+function lsr(){
+  const carry = value & 1;
+  value = (value >>> 1) & 255;
+  setNZC(value, carry);
+  drawMain();
+}
 
-    write(0,0,"HEX BIN DEC VISUALIZER","g");
-    write(58,0,"C128 VDC VERSION 2025","w");
+function rol(carryIn){
+  const carry = (value & 0x80) ? 1 : 0;
+  value = ((value << 1) & 255) | (carryIn ? 1 : 0);
+  setNZC(value, carry);
+  drawMain();
+}
 
-    // Obere HEX-Struktur
-    box(9,2,3,3,"g");
-    box(22,2,4,3,"g");
-    box(36,2,3,3,"g");
+function ror(carryIn){
+  const carry = value & 1;
+  value = (value >>> 1) | (carryIn ? 0x80 : 0);
+  value &= 255;
+  setNZC(value, carry);
+  drawMain();
+}
 
-    hline(12,21,3,"g");
-    hline(26,35,3,"g");
-    vline(10,5,6,"g");
-    vline(37,5,6,"g");
+/* ─────────────────────────────────────────────────────────────
+   Aktionen
+   ───────────────────────────────────────────────────────────── */
 
-    hline(2,18,6,"y");
-    hline(29,45,6,"y");
+function runAction(action){
+  if(stopped) return;
 
-    for(const x of [2,7,13,18]) vline(x,6,7,"y");
-    for(const x of [29,34,40,45]) vline(x,6,7,"y");
-
-    // Bitboxen
-    for(const x of bitBoxX){
-      box(x,7,3,3,"y");
-    }
-
-    const labels = ["2↑7","2↑6","2↑5","2↑4","2↑3","2↑2","2↑1","2↑0"];
-    for(let i=0;i<8;i++){
-      write(bitBoxX[i],11,labels[i],"d");
-    }
-
-    // Graue Leitungen
-    const starts = bitInsideX;
-    for(let i=0;i<8;i++){
-      const sx = starts[i];
-      const row = productRowsForBit7To0[i];
-
-      vline(sx,13,row,"m");
-      put(sx,row,"└","m");
-      hline(sx+1,57,row,"m");
-    }
-
-    // Rechte Anzeigen
-    write(64,3,"FA","g");
-    write(70,3,"HEX","g");
-
-    write(59,8,"11111010","y");
-    write(70,8,"BIN","y");
-
-    // Multiplikationstabelle
-    const weights = [1,2,4,8,16,32,64,128];
-    for(let i=0;i<8;i++){
-      const y = 14+i;
-      write(59,y,"0","y");
-      write(61,y,"*","m");
-      write(65,y,String(weights[i]).padStart(3," "),"m");
-      write(70,y,"=","m");
-      write(72,y,"  0","c");
-    }
-
-    write(69,22,"---","m");
-    write(69,23,"250","c");
-    write(76,23,"DEC","c");
-
-    // Bedienzeilen
-    write(0,23,"[CR UP]   +1  [<] ASL  ROL [N] C0 [V] C1  [Q] QUIT","r");
-    write(55,23,"NZC FLAG","o");
-
-    write(0,24,"[CR DOWN] -1  [>] LSR  ROR [M] C0 [B] C1  [H] HELP","r");
-    write(55,24,"000","o");
-  }
-
-  function drawDynamic(){
-    const hx = hex2(value);
-    const bn = bin8(value);
-
-    // HEX
-    write(10,3,hx[0],"g");
-    write(23,3,hx[0],"g");
-    write(24,3,hx[1],"g");
-    write(37,3,hx[1],"g");
-    write(64,3,hx,"g");
-
-    // BIN
-    for(let i=0;i<8;i++){
-      const bit = bn[i];
-
-      write(bitInsideX[i],8,bit,"y");
-      write(59+i,8,bit,"y");
-
-      const bitIndex = 7 - i;
-      const row = 14 + bitIndex;
-      const weight = 1 << bitIndex;
-      const result = bit === "1" ? weight : 0;
-
-      write(59,row,bit,"y");
-      write(72,row,String(result).padStart(3," "),"c");
-    }
-
-    // DEC
-    write(69,23,dec3(value),"c");
-
-    // NZC
-    put(55,24,String(flags.n),"o",!!flags.n);
-    put(56,24,String(flags.z),"o",!!flags.z);
-    put(57,24,String(flags.c),"o",!!flags.c);
-  }
-
-  function drawMain(){
-    mode = "main";
-    drawMainStatic();
-    drawDynamic();
-    markMainControls();
-  }
-
-  function drawHelp(){
-    mode = "help";
-    clear();
-
-    write(0,0,"HELP","w");
-    write(55,0,"PRESS ANY KEY TO EXIT","w");
-
-    write(0,4,"[CR UP]   +1 INCREMENT) VALUE","r");
-    write(0,5,"[CR DOWN] -1 DECREMENT) VALUE","r");
-
-    write(0,7,"[<] ASL       ARITHMETIC SHIFT LEFT","r");
-    write(0,8,"[>] LSR       LOGIC SHIFT RIGHT","r");
-
-    write(0,11,"ROL [N] C0    ROTATE LEFT   CARRY FLAG 0","r");
-    write(0,12,"ROR [M] C0    ROTATE RIGHT  CARRY FLAG 0","r");
-
-    write(0,15,"ROL [V] C1    ROTATE LEFT   CARRY FLAG 1","r");
-    write(0,16,"ROR [B] C1    ROTATE RIGHT  CARRY FLAG 1","r");
-
-    write(0,20,"[Q] QUIT      EXIT PROGRAM","r");
-    write(0,21,"[H] HELP      SHOW THIS HELP SCREEN","r");
-
-    write(55,4,"PROCESSOR STATUS REGISTER","w");
-
-    write(55,6,"N","o");
-    write(58,6,"NEGATIVE FLAG","w");
-
-    write(55,9,"Z","o");
-    write(58,9,"ZERO FLAG","w");
-
-    write(55,12,"C","o");
-    write(58,12,"CARRY FLAG","w");
-
-    // Im Help-Screen reicht Klick/Tap irgendwo zum Zurückgehen
-    for(let y=0; y<ROWS; y++){
-      for(let x=0; x<COLS; x++){
-        cells[y][x].classList.add("clickable");
-        cells[y][x].dataset.action = "helpBack";
-      }
-    }
-  }
-
-  function drawExit(){
-    stopped = true;
-    clear();
-    write(0,0,"C128 VDC VERSION 2025","w");
-    write(0,2,"PROGRAM ENDED","r");
-    write(0,4,"READY.","w");
-  }
-
-  function incValue(){
-    value = (value + 1) & 255;
-    setNZC(value,0);
+  if(mode === "help"){
     drawMain();
+    return;
   }
 
-  function decValue(){
-    value = (value - 1) & 255;
-    setNZC(value,0);
+  switch(action){
+    case "inc":      incValue(); break;
+    case "dec":      decValue(); break;
+
+    case "asl":      asl(); break;
+    case "lsr":      lsr(); break;
+
+    case "rol0":     rol(0); break;
+    case "ror0":     ror(0); break;
+
+    case "rol1":     rol(1); break;
+    case "ror1":     ror(1); break;
+
+    case "help":     drawHelp(); break;
+    case "quit":     drawExit(); break;
+
+    case "helpBack": drawMain(); break;
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────
+   Tastatur
+   ───────────────────────────────────────────────────────────── */
+
+window.addEventListener("keydown", e => {
+  if(mode === "boot") return;
+  if(stopped) return;
+
+  if(mode === "help"){
+    e.preventDefault();
     drawMain();
+    return;
   }
 
-  function asl(){
-    const carry = (value & 0x80) ? 1 : 0;
-    value = (value << 1) & 255;
-    setNZC(value,carry);
-    drawMain();
+  const k = e.key;
+  const low = k.toLowerCase();
+
+  if(k === "ArrowUp"){
+    e.preventDefault();
+    incValue();
+  }
+  else if(k === "ArrowDown"){
+    e.preventDefault();
+    decValue();
+  }
+  else if(k === "ArrowLeft" || k === "<" || k === ","){
+    e.preventDefault();
+    asl();
+  }
+  else if(k === "ArrowRight" || k === ">" || k === "."){
+    e.preventDefault();
+    lsr();
+  }
+  else if(low === "n"){
+    e.preventDefault();
+    rol(0);
+  }
+  else if(low === "m"){
+    e.preventDefault();
+    ror(0);
+  }
+  else if(low === "v"){
+    e.preventDefault();
+    rol(1);
+  }
+  else if(low === "b"){
+    e.preventDefault();
+    ror(1);
+  }
+  else if(low === "h"){
+    e.preventDefault();
+    drawHelp();
+  }
+  else if(low === "q"){
+    e.preventDefault();
+    drawExit();
+  }
+});
+
+/* ─────────────────────────────────────────────────────────────
+   Maus & Touch
+   ───────────────────────────────────────────────────────────── */
+
+function handlePointer(e){
+  if(stopped || mode === "boot") return;
+
+  let target;
+
+  if(e.type === "touchend"){
+    const touch = e.changedTouches[0];
+    target = document.elementFromPoint(touch.clientX, touch.clientY);
+  } else {
+    target = e.target;
   }
 
-  function lsr(){
-    const carry = value & 1;
-    value = (value >>> 1) & 255;
-    setNZC(value,carry);
-    drawMain();
-  }
+  if(!target) return;
 
-  function rol(carryIn){
-    const carry = (value & 0x80) ? 1 : 0;
-    value = ((value << 1) & 255) | (carryIn ? 1 : 0);
-    setNZC(value,carry);
-    drawMain();
-  }
+  let el = target;
 
-  function ror(carryIn){
-    const carry = value & 1;
-    value = (value >>> 1) | (carryIn ? 0x80 : 0);
-    value &= 255;
-    setNZC(value,carry);
-    drawMain();
-  }
-
-  function runAction(action){
-    if(stopped) return;
-
-    if(mode === "help"){
-      drawMain();
+  while(el && el !== screen){
+    if(el.dataset && el.dataset.action){
+      e.preventDefault();
+      runAction(el.dataset.action);
+      screen.focus();
       return;
     }
 
-    switch(action){
-      case "inc":
-        incValue();
-        break;
+    el = el.parentElement;
+  }
+}
 
-      case "dec":
-        decValue();
-        break;
+screen.addEventListener("click", handlePointer);
+screen.addEventListener("touchend", handlePointer, { passive:false });
 
-      case "asl":
-        asl();
-        break;
+/* ─────────────────────────────────────────────────────────────
+   Boot-Sequenz
+   ───────────────────────────────────────────────────────────── */
 
-      case "lsr":
-        lsr();
-        break;
+async function bootSequence(){
+  mode = "boot";
+  clear();
 
-      case "rol0":
-        rol(0);
-        break;
+  let cursorVisible = false;
+  let cursorX = 0;
+  let cursorY = 0;
+  let cursorTimer = null;
 
-      case "ror0":
-        ror(0);
-        break;
+  function startCursor(x, y){
+    cursorX = x;
+    cursorY = y;
+    cursorVisible = false;
 
-      case "rol1":
-        rol(1);
-        break;
-
-      case "ror1":
-        ror(1);
-        break;
-
-      case "help":
-        drawHelp();
-        break;
-
-      case "quit":
-        drawExit();
-        break;
-
-      case "helpBack":
-        drawMain();
-        break;
+    if(cursorTimer){
+      clearInterval(cursorTimer);
     }
+
+    cursorTimer = setInterval(() => {
+      cursorVisible = !cursorVisible;
+      putScreenByte(cursorX, cursorY, cursorVisible ? 0xA0 : 0x20);
+    }, 400);
   }
 
-  window.addEventListener("keydown", e => {
-    if(stopped) return;
-
-    if(mode === "help"){
-      e.preventDefault();
-      drawMain();
-      return;
+  function stopCursor(){
+    if(cursorTimer){
+      clearInterval(cursorTimer);
     }
 
-    const k = e.key;
-    const low = k.toLowerCase();
-
-    if(k === "ArrowUp"){
-      e.preventDefault();
-      incValue();
-    }
-    else if(k === "ArrowDown"){
-      e.preventDefault();
-      decValue();
-    }
-    else if(k === "ArrowLeft" || k === "<" || k === ","){
-      e.preventDefault();
-      asl();
-    }
-    else if(k === "ArrowRight" || k === ">" || k === "."){
-      e.preventDefault();
-      lsr();
-    }
-    else if(low === "n"){
-      e.preventDefault();
-      rol(0);
-    }
-    else if(low === "m"){
-      e.preventDefault();
-      ror(0);
-    }
-    else if(low === "v"){
-      e.preventDefault();
-      rol(1);
-    }
-    else if(low === "b"){
-      e.preventDefault();
-      ror(1);
-    }
-    else if(low === "h"){
-      e.preventDefault();
-      drawHelp();
-    }
-    else if(low === "q"){
-      e.preventDefault();
-      drawExit();
-    }
-  });
-
-  // ─── Maus & Touch ─────────────────────────────────────────────────
-
-  function handlePointer(e){
-    if(stopped) return;
-
-    let target;
-
-    if(e.type === "touchend"){
-      const touch = e.changedTouches[0];
-      target = document.elementFromPoint(touch.clientX, touch.clientY);
-    } else {
-      target = e.target;
-    }
-
-    if(!target) return;
-
-    let el = target;
-
-    while(el && el !== screen){
-      if(el.dataset && el.dataset.action){
-        e.preventDefault();
-        runAction(el.dataset.action);
-        screen.focus();
-        return;
-      }
-
-      el = el.parentElement;
-    }
+    cursorTimer = null;
+    putScreenByte(cursorX, cursorY, 0x20);
   }
 
-  screen.addEventListener("click", handlePointer);
-  screen.addEventListener("touchend", handlePointer, { passive:false });
+  /* Header */
+  write(14, 0, "COMMODORE BASIC V7.0  122365 BYTES FREE", FG, BG);
+  write(17, 1, "(C)1986 COMMODORE ELECTRONICS, LTD.", FG, BG);
+  write(20, 2, "(C)1977 MICROSOFT CORP.", FG, BG);
+  write(22, 3, "ALL RIGHTS RESERVED", FG, BG);
 
-  makeCells();
-  fit();
+  write(0, 5, "READY.", FG, BG);
+  startCursor(0, 6);
+  await wait(800);
+  stopCursor();
+
+  /* LOAD-Befehl tippen */
+  const cmd = 'LOAD"*",8,1';
+
+  for(let i = 0; i < cmd.length; i++){
+    write(0, 6, cmd.slice(0, i + 1), FG, BG);
+    startCursor(i + 1, 6);
+    await wait(55 + Math.random() * 40);
+  }
+
+  await wait(1200);
+  stopCursor();
+  await wait(1200);
+
+  write(0, 8, "SEARCHING FOR *", FG, BG);
+  await wait(1200);
+
+  write(0, 9, "LOADING", FG, BG);
+  await wait(1200);
+
+  write(0, 10, "READY.", FG, BG);
+  startCursor(0, 11);
+  await wait(1200);
+  stopCursor();
+
+  /* RUN tippen */
+  const run = "RUN";
+
+  for(let i = 0; i < run.length; i++){
+    write(0, 11, run.slice(0, i + 1), FG, BG);
+    startCursor(i + 1, 11);
+    await wait(55 + Math.random() * 40);
+  }
+
+  await wait(600);
+  stopCursor();
+  await wait(600);
+
+  clear();
+  await wait(200);
+
   drawMain();
   screen.focus();
+}
+
+/* ─────────────────────────────────────────────────────────────
+   Start
+   ───────────────────────────────────────────────────────────── */
+
+makeCells();
+fit();
+bootSequence();
 })();
 </script>
 </body>
